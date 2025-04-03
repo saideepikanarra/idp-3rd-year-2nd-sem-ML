@@ -1,0 +1,378 @@
+#code implementation 
+
+
+
+from google.colab import drive
+import os
+import numpy as np
+import random
+import shutil
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.optimizers import Adam
+from sklearn.model_selection import KFold
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import pandas as pd
+import seaborn as sns
+
+
+
+drive.mount('/content/drive')
+
+# Unzip the dataset
+!unzip "/content/drive/MyDrive/ECG_Image_data.zip" -d "/content/extracted"
+
+# Dataset paths
+train_path = "/content/extracted/ECG_Image_data/train"
+test_path = "/content/extracted/ECG_Image_data/test"
+
+# Image parameters
+image_size = (224, 224)
+batch_size = 32
+
+# Training Data Generator with Augmentation
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
+)
+
+# Testing Data Generator (Only Rescaling)
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+# Load Training Data
+train_generator = train_datagen.flow_from_directory(
+    train_path,
+    target_size=image_size,
+    batch_size=batch_size,
+    class_mode='categorical',
+    shuffle=True
+)
+
+# Load Testing Data
+test_generator = test_datagen.flow_from_directory(
+    test_path,
+    target_size=image_size,
+    batch_size=batch_size,
+    class_mode='categorical',
+    shuffle=False
+)
+
+
+
+import os
+import matplotlib.pyplot as plt
+
+def count_images_in_class(directory_path):
+    # Dictionary to hold the class names and their image counts
+    class_counts = {}
+
+    # List all subdirectories in the train directory (each subdirectory represents a class)
+    for class_name in os.listdir(directory_path):
+        class_path = os.path.join(directory_path, class_name)
+        if os.path.isdir(class_path):
+            # Count the number of images in each class
+            image_count = len([f for f in os.listdir(class_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            class_counts[class_name] = image_count
+
+    return class_counts
+
+# Check class distribution for train and test data
+train_class_counts = count_images_in_class(train_path)
+test_class_counts = count_images_in_class(test_path)
+
+# Print the class distribution
+print("Training Data Class Distribution:")
+for class_name, count in train_class_counts.items():
+    print(f"{class_name}: {count} images")
+
+print("\nTest Data Class Distribution:")
+for class_name, count in test_class_counts.items():
+    print(f"{class_name}: {count} images")
+
+# Visualize class distribution using Pie Chart
+def plot_class_distribution_pie(class_counts, title):
+    classes = list(class_counts.keys())
+    counts = list(class_counts.values())
+
+    # Plotting the pie chart
+    plt.figure(figsize=(8, 8))
+    plt.pie(counts, labels=classes, autopct='%1.1f%%', startangle=90, colors=plt.cm.Paired.colors)
+    plt.title(title)
+    plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+    plt.show()
+
+# Plot pie chart for training and test data distributions
+plot_class_distribution_pie(train_class_counts, "Training Data Class Distribution (Pie Chart)")
+plot_class_distribution_pie(test_class_counts, "Test Data Class Distribution (Pie Chart)")
+
+
+
+import os
+import random
+import shutil
+import matplotlib.pyplot as plt
+
+def count_images_in_class(directory_path):
+    class_counts = {}
+
+    # List all subdirectories (each subdirectory represents a class)
+    for class_name in os.listdir(directory_path):
+        class_path = os.path.join(directory_path, class_name)
+        if os.path.isdir(class_path):
+            # Count the number of images in each class
+            image_count = len([f for f in os.listdir(class_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            class_counts[class_name] = image_count
+
+    return class_counts
+
+def undersample_class_data(directory_path, min_count):
+    """Undersample classes to the minimum number of images."""
+    for class_name in os.listdir(directory_path):
+        class_path = os.path.join(directory_path, class_name)
+        if os.path.isdir(class_path):
+            # List all images in the class folder
+            all_images = [f for f in os.listdir(class_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            random.shuffle(all_images)
+
+            # Select images to match the min_count
+            images_to_keep = all_images[:min_count]
+
+            # Remove excess images (if any) from the class folder
+            for image in all_images[min_count:]:
+                image_path = os.path.join(class_path, image)
+                os.remove(image_path)
+
+            # Optionally move the undersampled images to a new location (if needed)
+            # Uncomment if you want to preserve the undersampled data elsewhere
+            # undersampled_class_path = '/path/to/undersampled/class_folder'
+            # os.makedirs(undersampled_class_path, exist_ok=True)
+            # for image in images_to_keep:
+            #     shutil.copy(os.path.join(class_path, image), undersampled_class_path)
+
+def undersample_data_for_all_classes(data_path):
+    # Get the class distribution for the data
+    class_counts = count_images_in_class(data_path)
+
+    # Find the minimum class count (i.e., undersampling target)
+    min_count = min(class_counts.values())
+
+    # Undersample each class
+    undersample_class_data(data_path, min_count)
+
+# Undersample training and testing data
+train_path = "/content/extracted/ECG_Image_data/train"
+test_path = "/content/extracted/ECG_Image_data/test"
+
+undersample_data_for_all_classes(train_path)
+undersample_data_for_all_classes(test_path)
+
+# Verify class distribution after undersampling
+train_class_counts = count_images_in_class(train_path)
+test_class_counts = count_images_in_class(test_path)
+
+# Print the new class distribution
+print("Undersampled Training Data Class Distribution:")
+for class_name, count in train_class_counts.items():
+    print(f"{class_name}: {count} images")
+
+print("\nUndersampled Test Data Class Distribution:")
+for class_name, count in test_class_counts.items():
+    print(f"{class_name}: {count} images")
+
+# Visualize the undersampled class distribution using Pie Chart
+def plot_class_distribution_pie(class_counts, title):
+    classes = list(class_counts.keys())
+    counts = list(class_counts.values())
+
+    # Plotting the pie chart
+    plt.figure(figsize=(8, 8))
+    plt.pie(counts, labels=classes, autopct='%1.1f%%', startangle=90, colors=plt.cm.Paired.colors)
+    plt.title(title)
+    plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+    plt.show()
+
+# Plot pie charts for the undersampled class distributions
+plot_class_distribution_pie(train_class_counts, "Undersampled Training Data Class Distribution (Pie Chart)")
+plot_class_distribution_pie(test_class_counts, "Undersampled Test Data Class")
+
+
+
+import numpy as np
+import os
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras import models, layers
+from tensorflow.keras.applications import VGG16
+from sklearn.model_selection import KFold
+
+# Define paths for dataset
+train_path = "/content/extracted/ECG_Image_data/train"
+test_path = "/content/extracted/ECG_Image_data/test"
+
+# Define image parameters
+IMG_SIZE = 96  # Resize images to 96x96 for the CNN input
+BATCH_SIZE = 32
+EPOCHS = 4
+
+# Data Augmentation for training
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
+)
+
+# Data preprocessing for test images (only rescaling)
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+# Function to build the model using VGG16 for feature extraction
+def build_model(num_classes):
+    base_model = VGG16(weights='imagenet', include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
+    base_model.trainable = False  # Freeze the base model layers
+
+    model = models.Sequential([
+        base_model,
+        layers.Flatten(),
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.5),
+        layers.Dense(num_classes, activation='softmax')  # Output layer for classification
+    ])
+
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+# Load all class names from the dataset
+all_classes = sorted(os.listdir(train_path))  # Ensures class order consistency
+num_classes = len(all_classes)  # Get total number of classes
+
+# K-Fold Cross Validation setup
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+history = []
+
+# Perform K-Fold Cross Validation
+for fold, (train_index, val_index) in enumerate(kf.split(all_classes)):
+    print(f"\nFold {fold + 1}/{kf.get_n_splits()}")
+
+    # Create train generator for the current fold
+    train_generator = train_datagen.flow_from_directory(
+        train_path,
+        target_size=(IMG_SIZE, IMG_SIZE),
+        batch_size=BATCH_SIZE,
+        class_mode='categorical',
+        shuffle=True  # Ensure shuffling for better training
+    )
+
+    # Create validation generator for the current fold
+    val_generator = test_datagen.flow_from_directory(
+        test_path,
+        target_size=(IMG_SIZE, IMG_SIZE),
+        batch_size=BATCH_SIZE,
+        class_mode='categorical',
+        shuffle=False  # No shuffling for validation
+    )
+
+    # Build model for this fold with the correct number of classes
+    model = build_model(num_classes)
+
+    # Train the model
+    history_fold = model.fit(
+        train_generator,
+        epochs=EPOCHS,
+        validation_data=val_generator
+    )
+
+    # Store only the last epoch's validation accuracy for this fold
+    history.append(history_fold.history['val_accuracy'][-1])
+
+# Compute overall accuracy
+overall_accuracy = np.mean(history)
+print(f"\nOverall Model Accuracy: {overall_accuracy:.4f}")
+
+
+
+
+from google.colab import files
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
+import matplotlib.pyplot as plt
+
+# Mapping of single-letter class labels to full names
+class_label_mapping = {
+    'N': 'Normal',
+    'S': 'Supraventricular',
+    'V': 'Ventricular',
+    'F': 'Fibrillation',
+    'Q': 'Premature Contractions'
+}
+
+# Step 1: Upload the image file
+uploaded = files.upload()
+
+# Get the file name of the uploaded image
+img_path = next(iter(uploaded))  # Get the first uploaded file (assuming one image)
+
+# Function to preprocess the image
+def preprocess_image(img_path, img_size=(96, 96,3)):
+    # Load the image and resize it to match the input size of the CNN model
+    img = image.load_img(img_path, target_size=img_size)
+    img_array = image.img_to_array(img)  # Convert image to numpy array
+    img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
+    img_array = img_array / 255.0  # Normalize pixel values to [0, 1]
+    return img_array
+
+# Step 2: Preprocess the uploaded image
+processed_image = preprocess_image(img_path)
+
+# Step 3: Load the trained model (if not already loaded)
+# If you saved your model after training, you can load it using:
+# model = tf.keras.models.load_model('/path/to/your/saved_model')
+
+# Step 4: Make predictions
+predictions = model.predict(processed_image)
+
+# Step 5: Get the predicted class index (the one with the highest probability)
+predicted_class_index = np.argmax(predictions, axis=-1)[0]
+
+# Get the class labels from the model's training data
+class_labels = list(train_generator.class_indices.keys())  # Class labels as a list
+
+# Map the predicted class index to the actual class name
+predicted_class_code = class_labels[predicted_class_index]
+print(f"Predicted code: {predicted_class_code}")
+
+# Step 6: Map the predicted class code to the full class name
+predicted_class_name = class_label_mapping.get(predicted_class_code, "Unknown")
+
+# Show the uploaded image and the predicted class
+img = image.load_img(img_path)
+plt.imshow(img)
+plt.title(f"Predicted: {predicted_class_name}")
+plt.axis('off')
+plt.show()
+
+# Print the predicted class name
+print(f"Predicted class: {predicted_class_name}")
+
+
+
+
+
+
+
+
+
+
+
